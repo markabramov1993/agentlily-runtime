@@ -102,6 +102,63 @@ const result = await runtime.executeTask({
 console.log(result.output);
 ```
 
+## Runtime Events
+
+`RuntimeEventBus` exposes the runtime lifecycle as typed events so observers can
+build audit logs, tracing adapters, metrics, or user-facing task status without
+coupling those concerns to task execution.
+
+| Event | Payload highlights |
+| --- | --- |
+| `runtime.started` | `runtimeId`, `occurredAt` |
+| `runtime.stopped` | `runtimeId`, `occurredAt` |
+| `runtime.task.received` | `runtimeId`, `taskId`, `agentId` |
+| `runtime.task.completed` | `runtimeId`, `taskId`, `agentId`, `toolName`, optional `durationMs` |
+| `runtime.task.failed` | `runtimeId`, `taskId`, `agentId`, `reason` |
+| `runtime.tool.invoked` | `runtimeId`, `taskId`, `agentId`, `toolName`, `invokedAt` |
+| `runtime.internal.error` | originating `eventName`, `errorMessage`, `occurredAt` |
+
+Inject a bus through `RuntimeOptions.eventBus`, subscribe before starting the
+runtime, and keep the unsubscribe functions returned by `on()`:
+
+```ts
+import {
+  AgentRuntime,
+  RuntimeEventBus
+} from "@lily-protocol/agentlily-runtime";
+
+const eventBus = new RuntimeEventBus();
+
+const unsubscribeCompleted = eventBus.on(
+  "runtime.task.completed",
+  ({ payload }) => {
+    console.log("completed", payload.taskId, payload.durationMs);
+  }
+);
+
+const unsubscribeFailed = eventBus.on(
+  "runtime.task.failed",
+  ({ payload }) => {
+    console.error("failed", payload.taskId, payload.reason);
+  }
+);
+
+const runtime = new AgentRuntime({
+  runtimeId: "local-dev",
+  eventBus
+});
+
+await runtime.start();
+
+// Later, detach observers when they are no longer needed.
+unsubscribeCompleted();
+unsubscribeFailed();
+```
+
+`RuntimeEventBus.on()` returns an idempotent unsubscribe function. The public
+`off()` method is also available when you need to remove a listener by
+reference, and `once()` can be used for a one-shot lifecycle observation.
+
 ## Scripts
 
 - `npm run build` compiles the library
