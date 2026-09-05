@@ -51,4 +51,51 @@ describe("AgentInstanceManager getOrCreate identity semantics (Issue #113)", () 
       /agentId must be a non-empty string/
     );
   });
+
+  it("evicts exactly the oldest instance when maxInstances is exceeded", () => {
+    const manager = new AgentInstanceManager({ maxInstances: 2 });
+
+    manager.getOrCreate("oldest");
+    manager.getOrCreate("middle");
+    manager.getOrCreate("newest");
+
+    expect(manager.size()).toBe(2);
+    expect(manager.has("oldest")).toBe(false);
+    expect(manager.get("oldest")).toBeUndefined();
+    expect(manager.has("middle")).toBe(true);
+    expect(manager.has("newest")).toBe(true);
+    expect(manager.list().map((instance) => instance.agentId)).toEqual([
+      "middle",
+      "newest"
+    ]);
+  });
+
+  it("re-reading an existing instance does not change FIFO order", () => {
+    const manager = new AgentInstanceManager({ maxInstances: 2 });
+
+    const oldest = manager.getOrCreate("oldest");
+    manager.getOrCreate("newer");
+    expect(manager.getOrCreate("oldest")).toBe(oldest);
+
+    manager.getOrCreate("newest");
+
+    expect(manager.has("oldest")).toBe(false);
+    expect(manager.has("newer")).toBe(true);
+    expect(manager.has("newest")).toBe(true);
+  });
+
+  it("maxInstances zero keeps creation unbounded without eviction", () => {
+    const manager = new AgentInstanceManager({ maxInstances: 0 });
+
+    for (let index = 0; index < 25; index += 1) {
+      manager.getOrCreate(`agent-${index}`);
+    }
+
+    expect(manager.size()).toBe(25);
+    expect(manager.has("agent-0")).toBe(true);
+    expect(manager.has("agent-24")).toBe(true);
+    expect(manager.list().map((instance) => instance.agentId)).toEqual(
+      Array.from({ length: 25 }, (_, index) => `agent-${index}`)
+    );
+  });
 });
