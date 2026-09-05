@@ -48,4 +48,66 @@ describe("InMemoryRuntimeStateStore put/get round trips", () => {
     expect(await store.get<string>("b")).toBe("beta");
     expect(await store.get<string>("c")).toBe("gamma");
   });
+
+  it("evicts the oldest inserted key when maxEntries is exceeded", async () => {
+    const store = new InMemoryRuntimeStateStore({ maxEntries: 2 });
+
+    await store.put("oldest", 1);
+    await store.put("middle", 2);
+    await store.put("newest", 3);
+
+    expect(await store.get("oldest")).toBeUndefined();
+    expect(await store.get("middle")).toBe(2);
+    expect(await store.get("newest")).toBe(3);
+    expect(await store.keys()).toEqual(["middle", "newest"]);
+    expect(await store.size()).toBe(2);
+  });
+
+  it("updating an existing key does not evict another entry", async () => {
+    const store = new InMemoryRuntimeStateStore({ maxEntries: 2 });
+
+    await store.put("a", 1);
+    await store.put("b", 2);
+    await store.put("a", 3);
+
+    expect(await store.get("a")).toBe(3);
+    expect(await store.get("b")).toBe(2);
+    expect(await store.size()).toBe(2);
+    expect(await store.keys()).toEqual(["a", "b"]);
+  });
+
+  it("delete returns true for existing keys and false for missing keys", async () => {
+    const store = new InMemoryRuntimeStateStore();
+    await store.put("session", { active: true });
+
+    expect(await store.has("session")).toBe(true);
+    expect(await store.delete("session")).toBe(true);
+    expect(await store.has("session")).toBe(false);
+    expect(await store.get("session")).toBeUndefined();
+    expect(await store.delete("session")).toBe(false);
+  });
+
+  it("keys, size, has, and clear stay consistent across state transitions", async () => {
+    const store = new InMemoryRuntimeStateStore();
+
+    expect(await store.keys()).toEqual([]);
+    expect(await store.size()).toBe(0);
+    expect(await store.has("a")).toBe(false);
+
+    await store.put("a", "alpha");
+    await store.put("b", "beta");
+
+    expect(await store.keys()).toEqual(["a", "b"]);
+    expect(await store.size()).toBe(2);
+    expect(await store.has("a")).toBe(true);
+    expect(await store.has("b")).toBe(true);
+
+    await store.clear();
+
+    expect(await store.keys()).toEqual([]);
+    expect(await store.size()).toBe(0);
+    expect(await store.has("a")).toBe(false);
+    expect(await store.has("b")).toBe(false);
+    expect(await store.get("a")).toBeUndefined();
+  });
 });
