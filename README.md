@@ -25,7 +25,7 @@ The current implementation demonstrates a narrow, credible runtime path:
 3. Build a runtime context for a task
 4. Execute a task through the task runner and action executor
 5. Invoke a typed tool
-6. Persist lightweight in-memory task history
+6. Persist task history in memory or to a local JSON file
 7. Emit runtime events and structured log entries
 
 This gives contributors a working reference path without locking the project
@@ -37,7 +37,7 @@ The following areas are scaffolded with interfaces, types, or placeholders and
 are expected to become contributor work:
 
 - Wallet-aware and payment-aware actions
-- Persistent memory and state backends
+- Additional persistent memory/state backends beyond the local JSON-file store
 - Model provider integrations (an `OpenAICompatibleModelProvider` scaffold is available for experimentation; note that it is scaffolded and intentionally not production-complete)
 - Runtime policy engines and approval flows
 - Long-running orchestration and scheduling
@@ -55,7 +55,7 @@ src/
   events/      Runtime event model and event bus
   guards/      Runtime assertions and guardrails
   logger/      Structured logger abstraction
-  memory/      In-memory store plus storage interface
+  memory/      In-memory and JSON-file memory stores
   providers/   Model/provider abstraction layer
   runtime/     Bootstrap, context, and runtime composition
   state/       Runtime state interface
@@ -101,6 +101,67 @@ const result = await runtime.executeTask({
 
 console.log(result.output);
 ```
+
+## Durable task history with `memoryStoragePath`
+
+By default, `AgentRuntime` uses `InMemoryMemoryStore`, so task history exists
+only for the life of the current process. Set `memoryStoragePath` to select the
+built-in `JsonFileMemoryStore` instead and persist task history to a JSON file:
+
+```ts
+import { AgentRuntime } from "@lily-protocol/agentlily-runtime";
+
+const runtime = new AgentRuntime({
+  runtimeId: "local-dev",
+  memoryStoragePath: "./data/task-history.json"
+});
+```
+
+`createRuntimeDependencies` constructs `JsonFileMemoryStore` when
+`memoryStoragePath` is present unless you explicitly supply `memoryStore`. The
+store creates the parent directory as needed and writes the complete entry
+array to the configured path.
+
+Each persisted object follows the exported `MemoryEntry` shape:
+
+```ts
+interface MemoryEntry {
+  agentId: string;
+  taskId: string;
+  input: string;
+  output: unknown;
+  recordedAt: string;
+}
+```
+
+On disk, the file is a JSON array. A typical entry looks like:
+
+```json
+[
+  {
+    "agentId": "agent-demo",
+    "taskId": "task-001",
+    "input": "Send a greeting",
+    "output": { "echoed": "hello lily" },
+    "recordedAt": "2026-09-05T09:30:00.000Z"
+  }
+]
+```
+
+### Current `JsonFileMemoryStore` caveats
+
+`JsonFileMemoryStore` is intentionally simple and is best treated as a local,
+single-writer persistence option rather than a production database:
+
+- Every `append()` rewrites the entire JSON array, so write cost grows with the history size.
+- The JSON-file store currently has no global or per-agent capacity limit; history grows until the caller clears or rotates the file.
+- Each store instance keeps its own in-memory cache and there is no cross-process locking, so multiple writers targeting the same path can overwrite newer data.
+- Writes go directly to the configured file rather than through an atomic temp-file rename, so it is not crash-safe against a process interruption during a write.
+- `listByAgent()` loads the file and filters entries by `agentId`; there is no index or pagination layer in the file-backed implementation.
+
+For applications that need concurrent writers, bounded retention, atomic
+commits, or indexed queries, inject a custom `MemoryStore` implementation via
+`RuntimeOptions.memoryStore`.
 
 ## Scripts
 
